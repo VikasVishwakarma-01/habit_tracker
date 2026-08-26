@@ -1,0 +1,8 @@
+export const CATEGORIES = new Set(["Health","Fitness","Learning","Mindfulness","Productivity","Social","Finance","Creative","Other"]);
+export function now(){return new Date().toISOString();}
+export function makeId(prefix){return `${prefix}_${crypto.randomUUID()}`;}
+export function dateKey(date=new Date()){const d=new Date(date); const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${day}`;}
+export function isDateKey(v){return typeof v==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(v);}
+export function addDays(key,amount){const d=new Date(`${key}T12:00:00`);d.setDate(d.getDate()+amount);return dateKey(d);}
+export function streakFromKeys(keys){const unique=[...new Set(keys)].sort(); if(!unique.length)return{current:0,longest:0}; const set=new Set(unique),today=dateKey(),yesterday=addDays(today,-1); let current=0,cursor=set.has(today)?today:set.has(yesterday)?yesterday:null; while(cursor&&set.has(cursor)){current++;cursor=addDays(cursor,-1);} let longest=0,run=0,prev=null; for(const key of unique){run=prev&&addDays(prev,1)===key?run+1:1;longest=Math.max(longest,run);prev=key;} return{current,longest};}
+export function validateHabit(body={}){const name=String(body.name??"").trim();if(!name)return"Habit name is required";if(name.length>120)return"Habit name is too long";const frequency=body.frequency??"daily";if(!["daily","weekly"].includes(frequency))return"Invalid frequency";const targetDays=Number(body.targetDays??7);if(!Number.isInteger(targetDays)||targetDays<1||targetDays>7)return"targetDays must be an integer from 1 to 7";if(body.category&&!CATEGORIES.has(body.category))return"Invalid category";return null;}
