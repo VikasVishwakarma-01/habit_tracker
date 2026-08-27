@@ -9,6 +9,7 @@ import Insights from "./pages/Insights.jsx";
 import Stats from "./pages/Stats.jsx";
 import Gamification from "./pages/Gamification.jsx";
 import Leaderboard from "./pages/Leaderboard.jsx";
+import PublicProfile from "./pages/PublicProfile.jsx";
 import AppLayout from "./components/AppLayout.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 
@@ -32,7 +33,12 @@ export default function App() {
         <Route path="/insights" element={<Insights />} />
         <Route path="/stats" element={<Stats />} />
         <Route path="/gamification" element={<Gamification />} />
+
+        {/* Leaderboard */}
         <Route path="/leaderboard" element={<Leaderboard />} />
+
+        {/* Public leaderboard user profile */}
+        <Route path="/leaderboard/user/:userId" element={<PublicProfile />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
