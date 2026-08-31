@@ -1,22 +1,376 @@
-import express from "express"; import { habits, logs } from "../db.js"; import { requireAuth } from "../middleware/auth.js"; import { addDays,dateKey,streakFromKeys } from "../utils.js";
-const router=express.Router();router.use(requireAuth);
-async function getContext(userId){const end=dateKey(),start=addDays(end,-29),hs=await habits.find({user_id:userId,is_archived:false}).toArray(),ls=await logs.find({user_id:userId,completed_date:{$gte:start,$lte:end}}).toArray();const byHabit=[];for(const h of hs){const keys=ls.filter(l=>l.habit_id===h.id).map(l=>l.completed_date);byHabit.push({id:h.id,name:h.name,category:h.category,targetDays:h.target_days,completions30d:keys.length,streak:streakFromKeys(keys)});}return{start,end,habits:hs,logs:ls,byHabit};}
-function bestDay(logs){const counts=Array(7).fill(0);for(const l of logs)counts[new Date(`${l.completed_date}T12:00:00`).getDay()]++;const i=counts.indexOf(Math.max(...counts));return["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][i];}
-async function gemini(prompt){const key=process.env.GEMINI_API_KEY;if(!key)return null;const model=process.env.GEMINI_MODEL||"gemini-2.5-flash";const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:.7,maxOutputTokens:900}})});if(!response.ok)return null;const data=await response.json();return data.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||null;}
-router.get("/morning",async(req,res)=>{const ctx=await getContext(req.userId),top=[...ctx.byHabit].sort((a,b)=>b.completions30d-a.completions30d)[0],weak=[...ctx.byHabit].sort((a,b)=>a.completions30d-b.completions30d)[0];const prompt=`You are a supportive habit coach. Give a concise morning motivation message in markdown. User's strongest habit: ${top?.name||"none"} (${top?.completions30d||0}/30). Habit needing attention: ${weak?.name||"none"} (${weak?.completions30d||0}/30). Current streaks: ${ctx.byHabit.map(h=>`${h.name}: ${h.streak.current}`).join(", ")||"none"}. Keep it under 100 words and practical.`;const content=await gemini(prompt)||(top?`Good morning! 🌅 Your strongest habit right now is **${top.name}** with ${top.completions30d} completions in the last 30 days. Keep that momentum today. ${weak?`Give **${weak.name}** one small, easy win too.`:"Keep stacking small wins."}`:"Good morning! 🌅 Start with one tiny habit today. Small wins compound.");res.json({content});});
-router.post("/weekly-report",async(req,res)=>{const ctx=await getContext(req.userId),prompt=`Create a personalised weekly habit report in markdown. Be encouraging but honest. 30-day context: ${JSON.stringify(ctx.byHabit)} Most consistent weekday in the data: ${bestDay(ctx.logs)}. Give 3 short sections: What went well, Patterns, One focus for next week. Keep it under 300 words.`;const content=await gemini(prompt)||(()=>{const top=[...ctx.byHabit].sort((a,b)=>b.completions30d-a.completions30d)[0],weak=[...ctx.byHabit].sort((a,b)=>a.completions30d-b.completions30d)[0];return`### What went well
-${top?`**${top.name}** is your strongest habit with ${top.completions30d} completions in the last 30 days.`:"You are getting started — consistency begins with the first check-in."}
+import express from "express";
+import { habits, logs } from "../db.js";
+import { requireAuth } from "../middleware/auth.js";
+import {
+  addDays,
+  dateKey,
+  streakFromKeys,
+} from "../utils.js";
+
+const router = express.Router();
+
+router.use(requireAuth);
+
+async function getContext(userId) {
+  const end = dateKey();
+  const start = addDays(end, -29);
+
+  const hs = await habits
+    .find({
+      user_id: userId,
+      is_archived: false,
+    })
+    .toArray();
+
+  const ls = await logs
+    .find({
+      user_id: userId,
+      completed_date: {
+        $gte: start,
+        $lte: end,
+      },
+    })
+    .toArray();
+
+  const byHabit = [];
+
+  for (const h of hs) {
+    const keys = ls
+      .filter((l) => l.habit_id === h.id)
+      .map((l) => l.completed_date);
+
+    byHabit.push({
+      id: h.id,
+      name: h.name,
+      category: h.category,
+      targetDays: h.target_days,
+      completions30d: keys.length,
+      streak: streakFromKeys(keys),
+    });
+  }
+
+  return {
+    start,
+    end,
+    habits: hs,
+    logs: ls,
+    byHabit,
+  };
+}
+
+function bestDay(logs) {
+  const counts = Array(7).fill(0);
+
+  for (const l of logs) {
+    counts[
+      new Date(`${l.completed_date}T12:00:00`).getDay()
+    ]++;
+  }
+
+  const i = counts.indexOf(Math.max(...counts));
+
+  return [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ][i];
+}
+
+async function gemini(prompt) {
+  const key = process.env.GEMINI_API_KEY;
+
+  if (!key) return null;
+
+  const model =
+    process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      model
+    )}:generateContent?key=${encodeURIComponent(key)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 900,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) return null;
+
+  const data = await response.json();
+
+  return (
+    data.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text || "")
+      .join("") || null
+  );
+}
+
+// Morning motivation
+router.get("/morning", async (req, res) => {
+  const ctx = await getContext(req.userId);
+
+  const top = [...ctx.byHabit].sort(
+    (a, b) => b.completions30d - a.completions30d
+  )[0];
+
+  const weak = [...ctx.byHabit].sort(
+    (a, b) => a.completions30d - b.completions30d
+  )[0];
+
+  const prompt = `
+You are a supportive habit coach.
+
+Give a concise morning motivation message in markdown.
+
+User's strongest habit:
+${top?.name || "none"} (${top?.completions30d || 0}/30).
+
+Habit needing attention:
+${weak?.name || "none"} (${weak?.completions30d || 0}/30).
+
+Current streaks:
+${ctx.byHabit
+  .map((h) => `${h.name}: ${h.streak.current}`)
+  .join(", ") || "none"}.
+
+Keep it under 100 words and practical.
+`;
+
+  const content =
+    (await gemini(prompt)) ||
+    (top
+      ? `Good morning! 🌅 Your strongest habit right now is **${top.name}** with ${top.completions30d} completions in the last 30 days. Keep that momentum today. ${
+          weak
+            ? `Give **${weak.name}** one small, easy win too.`
+            : "Keep stacking small wins."
+        }`
+      : "Good morning! 🌅 Start with one tiny habit today. Small wins compound.");
+
+  res.json({ content });
+});
+
+// Weekly report
+router.post("/weekly-report", async (req, res) => {
+  const ctx = await getContext(req.userId);
+
+  const prompt = `
+Create a personalised weekly habit report in markdown.
+
+Be encouraging but honest.
+
+30-day context:
+${JSON.stringify(ctx.byHabit)}
+
+Most consistent weekday in the data:
+${bestDay(ctx.logs)}.
+
+Give 3 short sections:
+1. What went well
+2. Patterns
+3. One focus for next week
+
+Keep it under 300 words.
+`;
+
+  const content =
+    (await gemini(prompt)) ||
+    (() => {
+      const top = [...ctx.byHabit].sort(
+        (a, b) => b.completions30d - a.completions30d
+      )[0];
+
+      const weak = [...ctx.byHabit].sort(
+        (a, b) => a.completions30d - b.completions30d
+      )[0];
+
+      return `### What went well
+
+${
+  top
+    ? `**${top.name}** is your strongest habit with ${top.completions30d} completions in the last 30 days.`
+    : "You are getting started — consistency begins with the first check-in."
+}
 
 ### Patterns
-Your most consistent day is **${bestDay(ctx.logs)}**. ${weak?`The habit with the most room to improve is **${weak.name}**.`:""}
+
+Your most consistent day is **${bestDay(ctx.logs)}**.
+
+${
+  weak
+    ? `The habit with the most room to improve is **${weak.name}**.`
+    : ""
+}
 
 ### One focus for next week
-Pick one habit and make the first step ridiculously easy. Aim for consistency before intensity.`})();res.json({content});});
-router.post("/suggest-habits",async(req,res)=>{const goals=String(req.body?.goals||""),productiveTime=String(req.body?.productiveTime||""),struggles=String(req.body?.struggles||""),ctx=await getContext(req.userId),prompt=`Suggest exactly 3 realistic habits for this user. Goals: ${goals}
-Most productive time: ${productiveTime}
-Struggles: ${struggles}
-Existing habits: ${ctx.habits.map(h=>h.name).join(", ")||"none"}. Return ONLY valid JSON: {"suggestions":[{"name":"...","description":"...","frequency":"daily|weekly","category":"Health|Fitness|Learning|Mindfulness|Productivity|Social|Finance|Creative|Other","icon":"emoji","reason":"..."}]}`;const ai=await gemini(prompt);if(ai)try{const parsed=JSON.parse(ai.replace(/^```json\s*/i,"").replace(/```$/i,"").trim());if(Array.isArray(parsed.suggestions))return res.json({suggestions:parsed.suggestions.slice(0,3)});}catch{}res.json({suggestions:[{name:"5-minute morning stretch",description:"Loosen up before the day starts.",frequency:"daily",category:"Health",icon:"🧘",reason:"Low friction and easy to attach to an existing morning routine."},{name:"10-minute focused learning",description:"Spend 10 distraction-free minutes learning something useful.",frequency:"daily",category:"Learning",icon:"📚",reason:"Small enough to maintain even on busy days."},{name:"Weekly reset walk",description:"Take a relaxed 30–60 minute walk once a week.",frequency:"weekly",category:"Fitness",icon:"🚶",reason:"Creates a low-pressure movement habit."}]});});
-router.post("/recovery-plan",async(req,res)=>{const habit=await habits.findOne({id:req.body?.habitId,user_id:req.userId});if(!habit)return res.status(404).json({message:"Habit not found"});const keys=(await logs.find({user_id:req.userId,habit_id:habit.id}).sort({completed_date:1}).toArray()).map(r=>r.completed_date),streak=streakFromKeys(keys),prompt=`Create a short 3-day streak recovery plan in markdown for the habit "${habit.name}". Previous longest streak: ${streak.longest} days. Current streak: ${streak.current}. Make each day achievable and include one friction-reduction tip. Under 180 words.`;const content=await gemini(prompt)||`You had a great run with **${habit.name}** — your previous best was ${streak.longest} days.
+
+Pick one habit and make the first step ridiculously easy. Aim for consistency before intensity.`;
+    })();
+
+  res.json({ content });
+});
+
+// Suggest habits
+router.post("/suggest-habits", async (req, res) => {
+  const goals = String(req.body?.goals || "");
+  const productiveTime = String(
+    req.body?.productiveTime || ""
+  );
+  const struggles = String(req.body?.struggles || "");
+
+  const ctx = await getContext(req.userId);
+
+  const prompt = `
+Suggest exactly 3 realistic habits for this user.
+
+Goals:
+${goals}
+
+Most productive time:
+${productiveTime}
+
+Struggles:
+${struggles}
+
+Existing habits:
+${ctx.habits.map((h) => h.name).join(", ") || "none"}.
+
+Return ONLY valid JSON:
+
+{
+  "suggestions": [
+    {
+      "name": "...",
+      "description": "...",
+      "frequency": "daily|weekly",
+      "category": "Health|Fitness|Learning|Mindfulness|Productivity|Social|Finance|Creative|Other",
+      "icon": "emoji",
+      "reason": "..."
+    }
+  ]
+}
+`;
+
+  const ai = await gemini(prompt);
+
+  if (ai) {
+    try {
+      const parsed = JSON.parse(
+        ai
+          .replace(/^```json\s*/i, "")
+          .replace(/```$/i, "")
+          .trim()
+      );
+
+      if (Array.isArray(parsed.suggestions)) {
+        return res.json({
+          suggestions: parsed.suggestions.slice(0, 3),
+        });
+      }
+    } catch {}
+  }
+
+  res.json({
+    suggestions: [
+      {
+        name: "5-minute morning stretch",
+        description: "Loosen up before the day starts.",
+        frequency: "daily",
+        category: "Health",
+        icon: "🧘",
+        reason:
+          "Low friction and easy to attach to an existing morning routine.",
+      },
+      {
+        name: "10-minute focused learning",
+        description:
+          "Spend 10 distraction-free minutes learning something useful.",
+        frequency: "daily",
+        category: "Learning",
+        icon: "📚",
+        reason:
+          "Small enough to maintain even on busy days.",
+      },
+      {
+        name: "Weekly reset walk",
+        description:
+          "Take a relaxed 30–60 minute walk once a week.",
+        frequency: "weekly",
+        category: "Fitness",
+        icon: "🚶",
+        reason:
+          "Creates a low-pressure movement habit.",
+      },
+    ],
+  });
+});
+
+// Recovery plan
+router.post("/recovery-plan", async (req, res) => {
+  const habit = await habits.findOne({
+    id: req.body?.habitId,
+    user_id: req.userId,
+  });
+
+  if (!habit) {
+    return res.status(404).json({
+      message: "Habit not found",
+    });
+  }
+
+  const keys = (
+    await logs
+      .find({
+        user_id: req.userId,
+        habit_id: habit.id,
+      })
+      .sort({
+        completed_date: 1,
+      })
+      .toArray()
+  ).map((r) => r.completed_date);
+
+  const streak = streakFromKeys(keys);
+
+  const prompt = `
+Create a short 3-day streak recovery plan in markdown
+for the habit "${habit.name}".
+
+Previous longest streak:
+${streak.longest} days.
+
+Current streak:
+${streak.current}.
+
+Make each day achievable and include one friction-reduction tip.
+
+Under 180 words.
+`;
+
+  const content =
+    (await gemini(prompt)) ||
+    `You had a great run with **${habit.name}** — your previous best was ${streak.longest} days.
 
 **Day 1:** Do the smallest version of the habit. The goal is simply to restart.
 
@@ -24,9 +378,109 @@ router.post("/recovery-plan",async(req,res)=>{const habit=await habits.findOne({
 
 **Day 3:** Return to your normal version if it feels manageable.
 
-The goal is not to make up for missed days. It's to make the next completion easy.`;res.json({content});});
-router.post("/chat",async(req,res)=>{const question=String(req.body?.question||"").trim();if(!question)return res.status(400).json({message:"question is required"});const ctx=await getContext(req.userId),prompt=`You are an AI habit analyst. Answer the user's question using ONLY the supplied habit data. If the data is insufficient, say so. Question: ${question}
-Habit data: ${JSON.stringify(ctx.byHabit)}
-Daily logs: ${JSON.stringify(ctx.logs)}
-Keep the answer concise, specific and actionable. Use markdown.`;const content=await gemini(prompt)||(()=>{const q=question.toLowerCase();if(q.includes("day")&&q.includes("consistent"))return`Based on your last 30 days, your most consistent weekday is **${bestDay(ctx.logs)}**.`;if(q.includes("category")){const counts={};for(const l of ctx.logs){const h=ctx.habits.find(x=>x.id===l.habit_id);if(h)counts[h.category]=(counts[h.category]||0)+1;}const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];return best?`Your best-performing category is **${best[0]}** with **${best[1]} completions** in the last 30 days.`:"There is not enough completion data yet.";}if(q.includes("exercise")||q.includes("fitness")||q.includes("workout")){const fitness=ctx.byHabit.filter(h=>h.category==="Fitness"),weakest=[...fitness].sort((a,b)=>a.completions30d-b.completions30d)[0];return weakest?`Your **${weakest.name}** habit has ${weakest.completions30d} completions in the last 30 days. Try reducing the minimum version of the habit on difficult days.`:"I don't see a Fitness habit in your current data.";}return`I analysed your last 30 days. You currently have **${ctx.habits.length} active habits** and **${ctx.logs.length} completions**. Ask me about consistency, categories, streaks, or a specific habit for a more targeted answer.`})();res.json({content});});
+The goal is not to make up for missed days. It's to make the next completion easy.`;
+
+  res.json({ content });
+});
+
+// AI habit chat
+router.post("/chat", async (req, res) => {
+  const question = String(
+    req.body?.question || ""
+  ).trim();
+
+  if (!question) {
+    return res.status(400).json({
+      message: "question is required",
+    });
+  }
+
+  const ctx = await getContext(req.userId);
+
+  const prompt = `
+You are an AI habit analyst.
+
+Answer the user's question using ONLY the supplied habit data.
+
+If the data is insufficient, say so.
+
+Question:
+${question}
+
+Habit data:
+${JSON.stringify(ctx.byHabit)}
+
+Daily logs:
+${JSON.stringify(ctx.logs)}
+
+Keep the answer concise, specific and actionable.
+Use markdown.
+`;
+
+  const content =
+    (await gemini(prompt)) ||
+    (() => {
+      const q = question.toLowerCase();
+
+      // Consistent day
+      if (
+        q.includes("day") &&
+        q.includes("consistent")
+      ) {
+        return `Based on your last 30 days, your most consistent weekday is **${bestDay(
+          ctx.logs
+        )}**.`;
+      }
+
+      // Best category
+      if (q.includes("category")) {
+        const counts = {};
+
+        for (const l of ctx.logs) {
+          const h = ctx.habits.find(
+            (x) => x.id === l.habit_id
+          );
+
+          if (h) {
+            counts[h.category] =
+              (counts[h.category] || 0) + 1;
+          }
+        }
+
+        const best = Object.entries(counts).sort(
+          (a, b) => b[1] - a[1]
+        )[0];
+
+        return best
+          ? `Your best-performing category is **${best[0]}** with **${best[1]} completions** in the last 30 days.`
+          : "There is not enough completion data yet.";
+      }
+
+      // Fitness / exercise
+      if (
+        q.includes("exercise") ||
+        q.includes("fitness") ||
+        q.includes("workout")
+      ) {
+        const fitness = ctx.byHabit.filter(
+          (h) => h.category === "Fitness"
+        );
+
+        const weakest = [...fitness].sort(
+          (a, b) =>
+            a.completions30d - b.completions30d
+        )[0];
+
+        return weakest
+          ? `Your **${weakest.name}** habit has ${weakest.completions30d} completions in the last 30 days. Try reducing the minimum version of the habit on difficult days.`
+          : "I don't see a Fitness habit in your current data.";
+      }
+
+      // Default response
+      return `I analysed your last 30 days. You currently have **${ctx.habits.length} active habits** and **${ctx.logs.length} completions**. Ask me about consistency, categories, streaks, or a specific habit for a more targeted answer.`;
+    })();
+
+  res.json({ content });
+});
+
 export default router;
